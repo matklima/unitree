@@ -1,20 +1,24 @@
 import rclpy
 from rclpy.node import Node
-from std_msgs.msg import String
+from std_msgs.msg import String, Int32
 
 class DecisionNode(Node):
     def __init__(self):
         super().__init__('decision_node')
         
-        # Slušamo nove "F:L:R" podatke
-        self.sub = self.create_subscription(String, '/perception_state', self.callback, 10)
-        self.pub = self.create_publisher(String, '/motion_command', 10)
+        # Pretplata na tvoj stabilni perception
+        self.subscription = self.create_subscription(
+            String, '/perception_state', self.decision_callback, 10)
+            
+        # Publisher prema actuation node-u (šaljemo ID stanja)
+        self.publisher_ = self.create_publisher(Int32, '/robot_state', 10)
         
-        self.avoidance_counter = 0
-        self.chosen_direction = "turn_left"
-        self.get_logger().info("Decision Node spreman. Čekam F:L:R podatke...")
+        # Pragovi (metri) - prilagodi ih po potrebi
+        self.SAFE_DIST = 1.2    # Ispod ovoga počni skretati
+        self.CRITICAL_DIST = 0.5 # Ispod ovoga stani (EMERGENCY)
 
-    def callback(self, msg):
+    def decision_callback(self, msg):
+        # Parsiranje podataka "N:L:D"
         try:
             parts = msg.data.split(':')
             f_dist = float(parts[0])
@@ -23,40 +27,26 @@ class DecisionNode(Node):
         except (ValueError, IndexError):
             return
 
-        # Pragovi (podesi prema svom robotu)
-        STOP_THRESHOLD = 0.75  # POVEĆANO: Ako je prepreka bliže od 75cm, odmah skreći
-        SLOW_THRESHOLD = 1.5   # Sve između 0.75m i 1.5m je usporavanje
-
-        if f_dist < STOP_THRESHOLD:
-            # Umjesto da dopustimo robotu da dođe na 0.4m i stane, 
-            # čim dođe na 0.75m prisiljavamo ga na skretanje.
-            if r_dist > l_dist:
-                cmd = f"turn_right:{f_dist}"
-            else:
-                cmd = f"turn_left:{f_dist}"
-            self.get_logger().info(f"Izbjegavam: {cmd}")
-
-        elif f_dist < SLOW_THRESHOLD:
-            # Ovdje dodajemo MINIMALNU brzinu
-            # Čak i ako je robot blizu, ne dajemo mu da ide sporije od npr. 0.15 m/s
-            cmd = f"slow_approach:{f_dist}"
-                
+        state = Int32()
+        
+        # LOGIKA ODLUČIVANJA
+        if f_dist < self.CRITICAL_DIST:
+            state.data = 0  # EMERGENCY STOP
+            self.get_logger().warn("!!! PREBLIZU - STOP !!!")
+            
+        elif f_dist < self.SAFE_DIST or r_dist < 1.0:
+            # Ako je zid ispred ILI desno (kao na slici), skreći lijevo
+            state.data = 2  # TURN LEFT
+            self.get_logger().info(f"Izbjegavam zid (N:{f_dist:.2f}, D:{r_dist:.2f}) -> SKREĆEM LIJEVO")
+            
         else:
-            # Put je čist
-            cmd = f"move_forward:{f_dist}"
+            state.data = 1  # FORWARD
+            self.get_logger().info("Put je čist -> IDEM NAPRIJED")
 
-        self.pub.publish(String(data=cmd))
+        self.publisher_.publish(state)
 
-def main(args=None):
-    rclpy.init(args=args)
+def main():
+    rclpy.init()
     node = DecisionNode()
-    try:
-        rclpy.spin(node)
-    except KeyboardInterrupt:
-        pass
-    finally:
-        node.destroy_node()
-        rclpy.shutdown()
-
-if __name__ == '__main__':
-    main()
+    rclpy.spin(node)
+    rclpy.shutdown()

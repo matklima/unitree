@@ -2,68 +2,79 @@ import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import LaserScan
 from std_msgs.msg import String
-import math
-
+import collections
+import numpy as np
 class PerceptionNode(Node):
     def __init__(self):
         super().__init__('perception_node')
-        # Povišen prag detekcije na 1.0m za stabilnije izbjegavanje
-        self.declare_parameter('threshold', 1.0) 
-        
-        self.pub = self.create_publisher(String, '/perception_state', 10)
         self.sub = self.create_subscription(LaserScan, '/scan', self.scan_callback, 10)
-        
-        self.get_logger().info("Perception Node pokrenut. Filtriram sve ispod 0.7m (tijelo robota).")
+        self.pub = self.create_publisher(String, '/perception_state', 10)
+        self.buf_f = collections.deque([5.0]*8, maxlen=8)
+        self.buf_l = collections.deque([5.0]*8, maxlen=8)
+        self.buf_r = collections.deque([5.0]*8, maxlen=8)
+                # Memorija za stabilizaciju (da ne titra)
+        self.last_distances = {"F": 5.0, "L": 5.0, "R": 5.0}
 
-    def get_dist(self, data):
-        # Donja granica 0.5m (iznad koljena robota), gornja 3.5m (limit senzora)
-        clean = [r for r in data if 0.5 < r < 3.5 and not math.isinf(r)]
+    def clean_sector(self, ranges, key):
+        # 1. Izbaci sve nule, inf i samoočitavanja (ispod 0.3m)
+        valid = [r for r in ranges if 0.3 < r < 4.8]
         
-        if not clean:
-            return 3.5 # Ako nema ničeg u sigurnom pojasu, put je čist
-            
-        return min(clean) # Uzmi najbliži STVARNI objekt
+        if valid:
+            # Uzmi minimalnu udaljenost, to je najsigurnije
+            current_min = min(valid)
+            self.last_distances[key] = current_min
+            return current_min
+        else:
+            # Ako senzor trenutno "fali" (izbaci 5m), a zid je bio blizu
+            # zadrži zadnju poznatu vrijednost (to je "prevara" koja spašava stvar)
+            if self.last_distances[key] < 1.5:
+                return self.last_distances[key]
+            return 5.0
 
     def scan_callback(self, msg):
-        # 1. Priprema podataka
-        ranges = msg.ranges
-        n = len(ranges)
-        if n == 0:
-            return
-
-        # Ovdje dodajemo tvoj novi filter za 'inf' vrijednosti odmah na početku
-        # Ovo osigurava da get_dist uvijek radi s brojevima
-        ranges = [r if (0.1 < r < 3.5) else 3.5 for r in ranges]
-
-        # 2. Definiranje sektora (Zadržavamo tvoju logiku indeksa)
+        n = len(msg.ranges)
         mid = n // 2
-        s = n // 8 
-
-        # 3. Dohvaćanje filtriranih udaljenosti pomoću tvoje get_dist metode
-        dist_front = self.get_dist(ranges[mid-s : mid+s])
-        dist_left = self.get_dist(ranges[mid+s : mid+3*s])
-        dist_right = self.get_dist(ranges[mid-3*s : mid-s])
-
-        # 4. Slanje podataka (NOVI FORMAT: "front:left:right")
-        # Više ne šaljemo 'state' (string), nego tri broja
-        msg_out = String()
-        msg_out.data = f"{dist_front:.2f}:{dist_left:.2f}:{dist_right:.2f}"
-        self.pub.publish(msg_out)
         
-        # DEBUG LOG: Pomaže ti da vidiš što robot vidi u realnom vremenu
-        self.get_logger().info(f"F:{dist_front:.2f}m | L:{dist_left:.2f}m | R:{dist_right:.2f}m")
+        # Širina vidnog polja (cca 15-20 stupnjeva po sektoru)
+        width = n // 12 
 
-def main(args=None):
-    rclpy.init(args=args)
+        # --- DEFINICIJA SEKTORA (Prilagođeno tvom robotu) ---
+        # Ako su ti 'krajevi' liste (0 i n) naprijed, koristimo ovo:
+        f_raw = msg.ranges[-width:] + msg.ranges[:width]
+        
+        # Desno je isječak oko 1/4 liste (ako 0-n pokriva 360 stupnjeva)
+        # ili oko n//4 ako pokriva 180. Prilagodi prema potrebi:
+        r_raw = msg.ranges[int(n*0.2) : int(n*0.3)]
+        
+        # Lijevo je suprotna strana
+        l_raw = msg.ranges[int(n*0.7) : int(n*0.8)]
+
+        def process_sector(raw_data, buffer):
+            # 1. Filtriraj smeće (ispod 0.3m je robot, iznad 5m je beskonačno)
+            valid = [r for r in raw_data if 0.3 < r < 4.9]
+            
+            if valid:
+                # Uzmi 10. percentil (pouzdanije od čistog minimuma koji može biti šum)
+                current_min = np.percentile(valid, 10)
+            else:
+                current_min = 5.0
+                
+            buffer.append(current_min)
+            # 2. Vrati medijan buffera (ekstremno otporno na 'skakanje' podataka)
+            return float(np.median(buffer))
+
+        f_dist = process_sector(f_raw, self.buf_f)
+        l_dist = process_sector(l_raw, self.buf_l)
+        r_dist = process_sector(r_raw, self.buf_r)
+
+        msg_out = String()
+        msg_out.data = f"{f_dist:.2f}:{l_dist:.2f}:{r_dist:.2f}"
+        self.pub.publish(msg_out)
+
+        self.get_logger().info(f"ZID -> NAPRIJED: {f_dist:.2f}m | DESNO: {r_dist:.2f}m | LIJEVO: {l_dist:.2f}m")
+
+def main():
+    rclpy.init()
     node = PerceptionNode()
-    try:
-        rclpy.spin(node)
-    except KeyboardInterrupt:
-        pass
-    finally:
-        # Sigurno uništavanje čvora pri gašenju[cite: 1, 4]
-        node.destroy_node()
-        rclpy.shutdown()
-
-if __name__ == '__main__':
-    main()
+    rclpy.spin(node)
+    rclpy.shutdown()
