@@ -4,77 +4,76 @@ from sensor_msgs.msg import LaserScan
 from std_msgs.msg import String
 import collections
 import numpy as np
+
+
 class PerceptionNode(Node):
+
     def __init__(self):
         super().__init__('perception_node')
-        self.sub = self.create_subscription(LaserScan, '/scan', self.scan_callback, 10)
-        self.pub = self.create_publisher(String, '/perception_state', 10)
-        self.buf_f = collections.deque([5.0]*8, maxlen=8)
-        self.buf_l = collections.deque([5.0]*8, maxlen=8)
-        self.buf_r = collections.deque([5.0]*8, maxlen=8)
-                # Memorija za stabilizaciju (da ne titra)
-        self.last_distances = {"F": 5.0, "L": 5.0, "R": 5.0}
 
-    def clean_sector(self, ranges, key):
-        # 1. Izbaci sve nule, inf i samoočitavanja (ispod 0.3m)
-        valid = [r for r in ranges if 0.3 < r < 4.8]
-        
-        if valid:
-            # Uzmi minimalnu udaljenost, to je najsigurnije
-            current_min = min(valid)
-            self.last_distances[key] = current_min
-            return current_min
-        else:
-            # Ako senzor trenutno "fali" (izbaci 5m), a zid je bio blizu
-            # zadrži zadnju poznatu vrijednost (to je "prevara" koja spašava stvar)
-            if self.last_distances[key] < 1.5:
-                return self.last_distances[key]
-            return 5.0
+        self.sub = self.create_subscription(
+            LaserScan, '/scan', self.scan_callback, 10
+        )
+        self.pub = self.create_publisher(String, '/perception_state', 10)
+
+        self.buf_f = collections.deque([5.0] * 8, maxlen=8)
+        self.buf_l = collections.deque([5.0] * 8, maxlen=8)
+        self.buf_r = collections.deque([5.0] * 8, maxlen=8)
+
+        self.SECTOR_WIDTH_DIVIDER = 12  # Dijeli 360° na sektore od 30°
+        self.RIGHT_START = 0.22
+        self.RIGHT_END = 0.32
+        self.LEFT_START = 0.7
+        self.LEFT_END = 0.8
+
+        # Granice senzora i percentil
+        self.MIN_RANGE = 0.3
+        self.MAX_RANGE = 4.9
+        self.SAFETY_PERCENTILE = 10
+        self.DEFAULT_DIST = 5.0
 
     def scan_callback(self, msg):
-        n = len(msg.ranges)
-        mid = n // 2
-        
-        # Širina vidnog polja (cca 15-20 stupnjeva po sektoru)
-        width = n // 12 
+        ranges = msg.ranges
+        n = len(ranges)
+        width = n // self.SECTOR_WIDTH_DIVIDER
 
-        # --- DEFINICIJA SEKTORA (Prilagođeno tvom robotu) ---
-        # Ako su ti 'krajevi' liste (0 i n) naprijed, koristimo ovo:
-        f_raw = msg.ranges[-width:] + msg.ranges[:width]
-        
-        # Desno je isječak oko 1/4 liste (ako 0-n pokriva 360 stupnjeva)
-        # ili oko n//4 ako pokriva 180. Prilagodi prema potrebi:
-        r_raw = msg.ranges[int(n*0.2) : int(n*0.3)]
-        
-        # Lijevo je suprotna strana
-        l_raw = msg.ranges[int(n*0.7) : int(n*0.8)]
+        # sektori
+        f_raw = ranges[-width:] + ranges[:width]
+        l_raw = ranges[int(n * self.RIGHT_START): int(n * self.RIGHT_END)]
+        r_raw = ranges[int(n * self.LEFT_START): int(n * self.LEFT_END)]
 
-        def process_sector(raw_data, buffer):
-            # 1. Filtriraj smeće (ispod 0.3m je robot, iznad 5m je beskonačno)
-            valid = [r for r in raw_data if 0.3 < r < 4.9]
-            
-            if valid:
-                # Uzmi 10. percentil (pouzdanije od čistog minimuma koji može biti šum)
-                current_min = np.percentile(valid, 10)
-            else:
-                current_min = 5.0
-                
-            buffer.append(current_min)
-            # 2. Vrati medijan buffera (ekstremno otporno na 'skakanje' podataka)
-            return float(np.median(buffer))
+        f_dist = self.process_sector(f_raw, self.buf_f)
+        l_dist = self.process_sector(l_raw, self.buf_l)
+        r_dist = self.process_sector(r_raw, self.buf_r)
 
-        f_dist = process_sector(f_raw, self.buf_f)
-        l_dist = process_sector(l_raw, self.buf_l)
-        r_dist = process_sector(r_raw, self.buf_r)
+        out = String()
+        out.data = f"{f_dist:.2f}:{l_dist:.2f}:{r_dist:.2f}"
+        self.pub.publish(out)
 
-        msg_out = String()
-        msg_out.data = f"{f_dist:.2f}:{l_dist:.2f}:{r_dist:.2f}"
-        self.pub.publish(msg_out)
+        self.get_logger().info(
+            f"F: {f_dist:.2f} | L: {l_dist:.2f} | R: {r_dist:.2f}"
+        )
 
-        self.get_logger().info(f"ZID -> NAPRIJED: {f_dist:.2f}m | DESNO: {r_dist:.2f}m | LIJEVO: {l_dist:.2f}m")
+    def process_sector(self, raw, buffer):
+        valid = [r for r in raw if self.MIN_RANGE < r < self.MAX_RANGE]
+
+        if valid:
+            dist = np.percentile(valid, self.SAFETY_PERCENTILE)
+        else:
+            dist = self.DEFAULT_DIST
+
+        buffer.append(dist)
+        return float(np.median(buffer))
+
 
 def main():
     rclpy.init()
     node = PerceptionNode()
-    rclpy.spin(node)
+
+    try:
+        rclpy.spin(node)
+    except KeyboardInterrupt:
+        pass
+
+    node.destroy_node()
     rclpy.shutdown()
