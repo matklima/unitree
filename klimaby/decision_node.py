@@ -16,15 +16,6 @@ class DecisionNode(Node):
     def __init__(self):
         super().__init__('decision_node')
 
-        self.subscription = self.create_subscription(
-            String, '/perception_state', self.decision_callback, 10)
-        self.publisher_ = self.create_publisher(Int32, '/robot_state', 10)
-        self.last_update_time = self.get_clock().now()
-
-        self.safety_timer = self.create_timer(0.1, self.safety_check)
-
-        self.add_on_set_parameters_callback(self.parameter_callback)
-
         self.forced_turn_steps = 0
         self.current_action = RobotState.STOP
 
@@ -41,6 +32,13 @@ class DecisionNode(Node):
         self.short_turn_steps = self.get_parameter('short_turn_steps').value
 
         self.add_on_set_parameters_callback(self.parameter_callback)
+
+        self.subscription = self.create_subscription(
+            String, '/perception_state', self.decision_callback, 10)
+        self.publisher_ = self.create_publisher(Int32, '/robot_state', 10)
+        self.last_update_time = self.get_clock().now()
+
+        self.safety_timer = self.create_timer(0.1, self.safety_check)
 
     def parameter_callback(self, params):
         for param in params:
