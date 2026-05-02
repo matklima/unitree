@@ -2,41 +2,90 @@ import rclpy
 from rclpy.node import Node
 from std_msgs.msg import Int32
 from geometry_msgs.msg import Twist
+from rcl_interfaces.msg import SetParametersResult
+from enum import IntEnum
+
+class RobotState(IntEnum):
+    STOP = 0
+    FORWARD = 1
+    LEFT = 2
+    RIGHT = 3
 
 class ActuationNode(Node):
     def __init__(self):
         super().__init__('actuation_node')
         
-        # Pretplata na odluku iz decision_node
-        self.subscription = self.create_subscription(
-            Int32, '/robot_state', self.listener_callback, 10)
+        # 1. Parametri s lokalnim varijablama
+        self.declare_parameter('linear_speed', 0.3)
+        self.declare_parameter('rotation_speed', 0.8)
+        self.declare_parameter('accel_limit', 0.05) # Koliko se brzina smije promijeniti u jednom koraku
+
+        self.lin_vel_target = self.get_parameter('linear_speed').value
+        self.rot_vel_target = self.get_parameter('rotation_speed').value
+        self.accel_limit = self.get_parameter('accel_limit').value
+        
+        # 2. Trenutne brzine (za glatki prijelaz)
+        self.current_linear = 0.0
+        self.current_angular = 0.0
+        
+        # 3. Callback za parametre
+        self.add_on_set_parameters_callback(self.parameter_callback)
             
-        # Publisher za brzinu robota
+        self.subscription = self.create_subscription(
+            Int32, '/robot_state', self.state_callback, 10)
         self.publisher_ = self.create_publisher(Twist, '/cmd_vel', 10)
         
-        # Definiramo brzine
-        self.linear_speed = 0.3   # Brzina hoda naprijed
-        self.rotation_speed = 0.6 # Brzina okretanja u mjestu
+        self.current_state = RobotState.STOP
+        self.last_msg_time = self.get_clock().now()
+        self.timer = self.create_timer(0.1, self.control_loop)
 
-    def listener_callback(self, msg):
-        twist = Twist()
-        
-        if msg.data == 1: # FORWARD
-            twist.linear.x = self.linear_speed
-            twist.angular.z = 0.0
-            self.get_logger().info("HODAM: Naprijed")
-            
-        elif msg.data == 2: # TURN LEFT (U mjestu)
-            twist.linear.x = 0.0      # Zaustavi hod
-            twist.angular.z = self.rotation_speed # Rotiraj se
-            self.get_logger().info("ROTACIJA: Skrećem u mjestu ulijevo")
-            
-        else: # STOP (State 0 ili bilo što drugo)
-            twist.linear.x = 0.0
-            twist.angular.z = 0.0
-            self.get_logger().warn("STOP: Mirujem")
+    def parameter_callback(self, params):
+        for param in params:
+            if param.name == 'linear_speed': self.lin_vel_target = param.value
+            elif param.name == 'rotation_speed': self.rot_vel_target = param.value
+            elif param.name == 'accel_limit': self.accel_limit = param.value
+        return SetParametersResult(successful=True)
 
-        self.publisher_.publish(twist)
+    def state_callback(self, msg):
+        try:
+            self.current_state = RobotState(msg.data)
+        except ValueError:
+            self.current_state = RobotState.STOP
+        self.last_msg_time = self.get_clock().now()
+
+    def control_loop(self):
+        # Provjera Watchdoga
+        elapsed = self.get_clock().now() - self.last_msg_time
+        if elapsed.nanoseconds > 0.5 * 1e9:
+            self.current_state = RobotState.STOP
+            self.get_logger().error("FAIL-SAFE: Decision node izgubljen!")
+
+        # Definiramo ciljne brzine za ovaj ciklus
+        target_lin = 0.0
+        target_ang = 0.0
+
+        if self.current_state == RobotState.FORWARD:
+            target_lin = self.lin_vel_target
+        elif self.current_state == RobotState.LEFT:
+            target_ang = self.rot_vel_target
+        elif self.current_state == RobotState.RIGHT:
+            target_ang = -self.rot_vel_target
+
+        # RAMPING LOGIKA: Postepeno približavanje ciljnoj brzini
+        self.current_linear = self.smooth_value(self.current_linear, target_lin)
+        self.current_angular = self.smooth_value(self.current_angular, target_ang)
+
+        msg = Twist()
+        msg.linear.x = self.current_linear
+        msg.angular.z = self.current_angular
+        self.publisher_.publish(msg)
+
+    def smooth_value(self, current, target):
+        # Jednostavan linearni ramp
+        diff = target - current
+        if abs(diff) < self.accel_limit:
+            return target
+        return current + (self.accel_limit if diff > 0 else -self.accel_limit)
 
 def main():
     rclpy.init()
