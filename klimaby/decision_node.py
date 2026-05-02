@@ -1,49 +1,133 @@
 import rclpy
 from rclpy.node import Node
 from std_msgs.msg import String, Int32
+from enum import IntEnum
+from rcl_interfaces.msg import SetParametersResult
+
+# 1. Definiramo stanja kao Enum radi čitljivosti
+class RobotState(IntEnum):
+    STOP = 0
+    FORWARD = 1
+    LEFT = 2
+    RIGHT = 3
 
 class DecisionNode(Node):
     def __init__(self):
         super().__init__('decision_node')
-        
-        # Pretplata na tvoj stabilni perception
+
         self.subscription = self.create_subscription(
             String, '/perception_state', self.decision_callback, 10)
-            
-        # Publisher prema actuation node-u (šaljemo ID stanja)
         self.publisher_ = self.create_publisher(Int32, '/robot_state', 10)
-        
-        # Pragovi (metri) - prilagodi ih po potrebi
-        self.SAFE_DIST = 1.2    # Ispod ovoga počni skretati
-        self.CRITICAL_DIST = 0.5 # Ispod ovoga stani (EMERGENCY)
+        self.last_update_time = self.get_clock().now()
+
+        self.safety_timer = self.create_timer(0.1, self.safety_check)
+
+        self.add_on_set_parameters_callback(self.parameter_callback)
+
+        self.forced_turn_steps = 0
+        self.current_action = RobotState.STOP
+
+        self.declare_parameter('safe_dist', 1.2)
+        self.declare_parameter('critical_dist', 0.5)
+        self.declare_parameter('side_threshold', 1.0)
+        self.declare_parameter('long_turn_steps', 15)
+        self.declare_parameter('short_turn_steps', 8)
+
+        self.safe_dist = self.get_parameter('safe_dist').value
+        self.critical_dist = self.get_parameter('critical_dist').value
+        self.side_threshold = self.get_parameter('side_threshold').value
+        self.long_turn_steps = self.get_parameter('long_turn_steps').value
+        self.short_turn_steps = self.get_parameter('short_turn_steps').value
+
+        self.add_on_set_parameters_callback(self.parameter_callback)
+
+    def parameter_callback(self, params):
+        from rcl_interfaces.msg import SetParametersResult
+        for param in params:
+            if param.name == 'safe_dist':
+                if param.value <= 0: return SetParametersResult(successful=False, reason="Udaljenost mora biti > 0")
+                self.safe_dist = param.value
+            elif param.name == 'critical_dist':
+                self.critical_dist = param.value
+            elif param.name == 'side_threshold':
+                self.side_threshold = param.value
+            elif param.name == 'long_turn_steps':
+                self.long_turn_steps = param.value
+            elif param.name == 'short_turn_steps':
+                self.short_turn_steps = param.value
+                
+        self.get_logger().info("Parametri uspješno ažurirani!")
+        return SetParametersResult(successful=True)
+
+    def safety_check(self):
+        # Ako poruka kasni više od 0.5 sekundi, gasi motore
+        elapsed = self.get_clock().now() - self.last_update_time
+        if elapsed.nanoseconds > 0.5 * 1e9:
+            state = Int32()
+            state.data = RobotState.STOP
+            self.publisher_.publish(state)
+            self.get_logger().error("Perception node ugasen: Zaustavljam robota!")
 
     def decision_callback(self, msg):
-        # Parsiranje podataka "N:L:D"
-        try:
-            parts = msg.data.split(':')
-            f_dist = float(parts[0])
-            l_dist = float(parts[1])
-            r_dist = float(parts[2])
-        except (ValueError, IndexError):
-            return
-
-        state = Int32()
+        self.last_update_time = self.get_clock().now()
         
-        # LOGIKA ODLUČIVANJA
-        if f_dist < self.CRITICAL_DIST:
-            state.data = 0  # EMERGENCY STOP
-            self.get_logger().warn("!!! PREBLIZU - STOP !!!")
-            
-        elif f_dist < self.SAFE_DIST or r_dist < 1.0:
-            # Ako je zid ispred ILI desno (kao na slici), skreći lijevo
-            state.data = 2  # TURN LEFT
-            self.get_logger().info(f"Izbjegavam zid (N:{f_dist:.2f}, D:{r_dist:.2f}) -> SKREĆEM LIJEVO")
-            
-        else:
-            state.data = 1  # FORWARD
-            self.get_logger().info("Put je čist -> IDEM NAPRIJED")
+        distances = self.parse_perception(msg.data)
+        if not distances:
+            return
+        
+        f_dist, l_dist, r_dist = distances
+        state = Int32()
 
+        # LOGIKA ODLUČIVANJA
+        
+        if self.forced_turn_steps > 0:
+            self.forced_turn_steps -= 1
+            state.data = self.current_action
+        
+        # B. Emergency situacija (Kritično blizu)
+        elif f_dist < self.critical_dist:
+            self.get_logger().warn("!!! BLIZINA: Rotacija u mjestu !!!")
+            if l_dist > r_dist:
+                self.current_action = RobotState.LEFT
+            else:
+                self.current_action = RobotState.RIGHT            
+            self.forced_turn_steps = self.long_turn_steps
+            state.data = self.current_action
+
+        # C. Izbjegavanje ispred (Safe distance)
+        elif f_dist < self.safe_dist:
+            if l_dist > r_dist:
+                self.current_action = RobotState.LEFT
+                self.get_logger().info("Izbjegavam frontalno -> LIJEVO")
+            else:
+                self.current_action = RobotState.RIGHT
+                self.get_logger().info("Izbjegavam frontalno -> DESNO")
+            self.forced_turn_steps = self.long_turn_steps
+            state.data = self.current_action
+
+        # D. Bočno izbjegavanje
+        elif r_dist < self.side_threshold or l_dist < self.side_threshold:
+            if l_dist > r_dist:
+                self.current_action = RobotState.LEFT
+            else:
+                self.current_action = RobotState.RIGHT
+            self.forced_turn_steps = self.short_turn_steps
+            state.data = self.current_action
+
+        # E. Put je čist
+        else:
+            self.current_action = RobotState.FORWARD
+            state.data = self.current_action
+        
         self.publisher_.publish(state)
+
+    def parse_perception(self, data):
+        try:
+            parts = data.split(':')
+            return [float(p) for p in parts]
+        except (ValueError, IndexError):
+            self.get_logger().error("Neuspjelo parsiranje percepcije!")
+            return None
 
 def main():
     rclpy.init()
