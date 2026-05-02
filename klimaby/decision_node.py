@@ -4,6 +4,7 @@ from std_msgs.msg import String, Int32
 from enum import IntEnum
 from rcl_interfaces.msg import SetParametersResult
 
+
 # 1. Definiramo stanja kao Enum radi čitljivosti
 class RobotState(IntEnum):
     STOP = 0
@@ -42,7 +43,6 @@ class DecisionNode(Node):
         self.add_on_set_parameters_callback(self.parameter_callback)
 
     def parameter_callback(self, params):
-        from rcl_interfaces.msg import SetParametersResult
         for param in params:
             if param.name == 'safe_dist':
                 if param.value <= 0: return SetParametersResult(successful=False, reason="Udaljenost mora biti > 0")
