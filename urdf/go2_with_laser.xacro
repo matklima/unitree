@@ -1,0 +1,11 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="go2">
+
+    <!-- 1. Uključi ORIGINALNI robot file iz drugog repozitorija -->
+    <!-- (Zamijeni 'drugi_repo_package' s pravim imenom, npr. go2_description ili champ_description) -->
+    <xacro:include filename="$(find go2_description)/xacro/robot.xacro" />
+
+    <!-- 2. Uključi SVOJ laser file -->
+    <xacro:include filename="$(find go2_description)/xacro/laser.xacro" />
+
+</robot>
