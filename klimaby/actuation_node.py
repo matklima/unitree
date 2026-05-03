@@ -24,6 +24,8 @@ class ActuationNode(Node):
         self.rot_vel_target = self.get_parameter('rotation_speed').value
         self.accel_limit = self.get_parameter('accel_limit').value
         
+        self.fail_safe_active = False
+
         # 2. Trenutne brzine (za glatki prijelaz)
         self.current_linear = 0.0
         self.current_angular = 0.0
@@ -56,9 +58,19 @@ class ActuationNode(Node):
     def control_loop(self):
         # Provjera Watchdoga
         elapsed = self.get_clock().now() - self.last_msg_time
+        
         if elapsed.nanoseconds > 0.5 * 1e9:
+            # Ako je ovo prvi put da detektiramo gubitak, ispiši error
+            if not self.fail_safe_active:
+                self.get_logger().error("FAIL-SAFE: Decision node izgubljen! Zaustavljam robota.")
+                self.fail_safe_active = True
+            
             self.current_state = RobotState.STOP
-            self.get_logger().error("FAIL-SAFE: Decision node izgubljen!")
+        else:
+            # RECOVERY LOGIKA: Ako su poruke ponovno počele dolaziti
+            if self.fail_safe_active:
+                self.get_logger().info("RECOVERY: Veza s Decision node-om ponovno uspostavljena.")
+                self.fail_safe_active = False
 
         # Definiramo ciljne brzine za ovaj ciklus
         target_lin = 0.0

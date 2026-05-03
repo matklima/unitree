@@ -18,6 +18,7 @@ class DecisionNode(Node):
 
         self.forced_turn_steps = 0
         self.current_action = RobotState.STOP
+        self.safety_mode_active = False
 
         self.declare_parameter('safe_dist', 1.2)
         self.declare_parameter('critical_dist', 0.5)
@@ -61,12 +62,19 @@ class DecisionNode(Node):
         # Ako poruka kasni više od 0.5 sekundi, gasi motore
         elapsed = self.get_clock().now() - self.last_update_time
         if elapsed.nanoseconds > 0.5 * 1e9:
+            if not self.safety_mode_active:
+                self.get_logger().error("Perception node izgubljen: Zaustavljam robota!")
+                self.safety_mode_active = True
+            
             state = Int32()
             state.data = RobotState.STOP
             self.publisher_.publish(state)
-            self.get_logger().error("Perception node ugasen: Zaustavljam robota!")
 
     def decision_callback(self, msg):
+        if self.safety_mode_active:
+            self.get_logger().info("RECOVERY: Perception node ponovno aktivan. Nastavljam s radom.")
+            self.safety_mode_active = False
+
         self.last_update_time = self.get_clock().now()
         
         distances = self.parse_perception(msg.data)
