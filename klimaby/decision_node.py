@@ -4,8 +4,6 @@ from std_msgs.msg import String, Int32
 from enum import IntEnum
 from rcl_interfaces.msg import SetParametersResult
 
-
-# 1. Definiramo stanja kao Enum radi čitljivosti
 class RobotState(IntEnum):
     STOP = 0
     FORWARD = 1
@@ -19,6 +17,8 @@ class DecisionNode(Node):
         self.forced_turn_steps = 0
         self.current_action = RobotState.STOP
         self.safety_mode_active = False
+        # Dodano za praćenje promjene stanja logiranja
+        self.last_logged_action = None 
 
         self.declare_parameter('safe_dist', 1.2)
         self.declare_parameter('critical_dist', 0.5)
@@ -59,12 +59,12 @@ class DecisionNode(Node):
         return SetParametersResult(successful=True)
 
     def safety_check(self):
-        # Ako poruka kasni više od 0.5 sekundi, gasi motore
         elapsed = self.get_clock().now() - self.last_update_time
         if elapsed.nanoseconds > 0.5 * 1e9:
             if not self.safety_mode_active:
                 self.get_logger().error("Perception node izgubljen: Zaustavljam robota!")
                 self.safety_mode_active = True
+                self.last_logged_action = RobotState.STOP # Resetiramo log da javi povratak
             
             state = Int32()
             state.data = RobotState.STOP
@@ -72,11 +72,10 @@ class DecisionNode(Node):
 
     def decision_callback(self, msg):
         if self.safety_mode_active:
-            self.get_logger().info("RECOVERY: Perception node ponovno aktivan. Nastavljam s radom.")
+            self.get_logger().info("RECOVERY: Perception node ponovno aktivan.")
             self.safety_mode_active = False
 
         self.last_update_time = self.get_clock().now()
-        
         distances = self.parse_perception(msg.data)
         if not distances:
             return
@@ -85,14 +84,11 @@ class DecisionNode(Node):
         state = Int32()
 
         # LOGIKA ODLUČIVANJA
-        
         if self.forced_turn_steps > 0:
             self.forced_turn_steps -= 1
             state.data = self.current_action
         
-        # B. Emergency situacija (Kritično blizu)
         elif f_dist < self.critical_dist:
-            self.get_logger().warn("!!! BLIZINA: Rotacija u mjestu !!!")
             if l_dist > r_dist:
                 self.current_action = RobotState.LEFT
             else:
@@ -100,18 +96,14 @@ class DecisionNode(Node):
             self.forced_turn_steps = self.long_turn_steps
             state.data = self.current_action
 
-        # C. Izbjegavanje ispred (Safe distance)
         elif f_dist < self.safe_dist:
             if l_dist > r_dist:
                 self.current_action = RobotState.LEFT
-                self.get_logger().info("Izbjegavam frontalno -> LIJEVO")
             else:
                 self.current_action = RobotState.RIGHT
-                self.get_logger().info("Izbjegavam frontalno -> DESNO")
             self.forced_turn_steps = self.long_turn_steps
             state.data = self.current_action
 
-        # D. Bočno izbjegavanje
         elif r_dist < self.side_threshold or l_dist < self.side_threshold:
             if l_dist > r_dist:
                 self.current_action = RobotState.LEFT
@@ -120,12 +112,28 @@ class DecisionNode(Node):
             self.forced_turn_steps = self.short_turn_steps
             state.data = self.current_action
 
-        # E. Put je čist
         else:
             self.current_action = RobotState.FORWARD
             state.data = self.current_action
         
+        # LOGIRANJE PROMJENE AKCIJE
+        self.log_action_change(self.current_action, f_dist, l_dist, r_dist)
+        
         self.publisher_.publish(state)
+
+    def log_action_change(self, action, f, l, r):
+        # Ispisuje samo ako je akcija drugačija od zadnje ispisane
+        if action == self.last_logged_action:
+            return
+
+        if action == RobotState.FORWARD:
+            self.get_logger().info(f"Akcija: NAPRIJED | Put čist (F: {f:.2f}m)")
+        elif action == RobotState.LEFT:
+            self.get_logger().info(f"Akcija: LIJEVO | Prepreka detektirana (F: {f:.2f}m, R: {r:.2f}m < L: {l:.2f}m)")
+        elif action == RobotState.RIGHT:
+            self.get_logger().info(f"Akcija: DESNO | Prepreka detektirana (F: {f:.2f}m, L: {l:.2f}m < R: {r:.2f}m)")
+        
+        self.last_logged_action = action
 
     def parse_perception(self, data):
         try:
