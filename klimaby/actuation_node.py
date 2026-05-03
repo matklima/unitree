@@ -17,7 +17,7 @@ class ActuationNode(Node):
         
         # 1. Parametri s lokalnim varijablama
         self.declare_parameter('linear_speed', 0.3)
-        self.declare_parameter('rotation_speed', 0.8)
+        self.declare_parameter('rotation_speed', 0.3)
         self.declare_parameter('accel_limit', 0.05) # Koliko se brzina smije promijeniti u jednom koraku
 
         self.lin_vel_target = self.get_parameter('linear_speed').value
