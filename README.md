@@ -2,12 +2,12 @@
 
 ## 🛠️ Installation Guide
 
-Ovaj projekt je razvijen i testiran na operacijskom sustavu **Ubuntu 22.04** uz **ROS 2 Humble**. Za simulacijsko okruženje koristi se **Gazebo**.
+This project was developed and tested on **Ubuntu 22.04** with **ROS 2 Humble**. **Gazebo** is used for the simulation environment.
 
-### 1. Preduvjeti
-Osigurajte da imate instaliranu Desktop verziju ROS 2 Humble. Ako nemate, slijedite [službene upute za instalaciju](https://docs.ros.org/en/humble/Installation.html).
+### 1. Prerequisites
+Ensure you have the Desktop version of ROS 2 Humble installed. If not, follow the [official installation instructions](https://docs.ros.org/en/humble/Installation.html).
 
-Također, instalirajte Gazebo i potrebne ROS 2 pakete za rad s robotima:
+Also, install Gazebo and the necessary ROS 2 packages for working with robots:
 ```bash
 sudo apt update
 sudo apt install ros-humble-desktop \
@@ -19,20 +19,20 @@ sudo apt install ros-humble-desktop \
 
 
 
-### 2. Postavljanje workspacea
+### 2. Setting up the workspace
 
 ```bash
 mkdir -p ~/ros2_ws/src
 cd ~/ros2_ws/src
 
-# Klonirajte ovaj repozitorij
+# Clone this repository
 git clone <git@github.com:matklima/unitree.git> klimaby
 
-# Klonirajte Unitree Go2 opisni paket (potreban za URDF i Gazebo scene)
+# Clone the Unitree Go2 description package (required for URDF and Gazebo scenes)
 git clone https://github.com/abizovnuralem/unitree_go2_ros2.git
 ```
 
-### 3. Install i build
+### 3. Install and build
 
 ```bash
 pip install numpy
@@ -42,13 +42,13 @@ colcon build --symlink-install
 source install/setup.bash
 ```
 
-### 4. Pokretanje simulacije i spawnanje robota go2
+### 4. Running the simulation and spawning the go2 robot
 
 ```bash
 ros2 launch go2_config gazebo.launch.py rviz:=true world:=/home/mateo/ros2_ws/install/go2_config/share/go2_config/worlds/outdoor.world world_init_z:=0.6
 ```
 
-### 5. Pokretanje logike robota
+### 5. Running the robot logic
 
 ```bash
 ros2 launch klimaby autonomy.launch.py

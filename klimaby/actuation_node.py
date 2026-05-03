@@ -15,10 +15,10 @@ class ActuationNode(Node):
     def __init__(self):
         super().__init__('actuation_node')
         
-        # 1. Parametri s lokalnim varijablama
+        # 1. Parameters with local variables
         self.declare_parameter('linear_speed', 0.3)
         self.declare_parameter('rotation_speed', 0.3)
-        self.declare_parameter('accel_limit', 0.05) # Koliko se brzina smije promijeniti u jednom koraku
+        self.declare_parameter('accel_limit', 0.05) # How much speed can change in one step
 
         self.lin_vel_target = self.get_parameter('linear_speed').value
         self.rot_vel_target = self.get_parameter('rotation_speed').value
@@ -26,11 +26,11 @@ class ActuationNode(Node):
         
         self.fail_safe_active = False
 
-        # 2. Trenutne brzine (za glatki prijelaz)
+        # 2. Current speeds (for smooth transition)
         self.current_linear = 0.0
         self.current_angular = 0.0
         
-        # 3. Callback za parametre
+        # 3. Callback for parameters
         self.add_on_set_parameters_callback(self.parameter_callback)
             
         self.subscription = self.create_subscription(
@@ -56,23 +56,23 @@ class ActuationNode(Node):
         self.last_msg_time = self.get_clock().now()
 
     def control_loop(self):
-        # Provjera Watchdoga
+        # Watchdog check
         elapsed = self.get_clock().now() - self.last_msg_time
         
         if elapsed.nanoseconds > 0.5 * 1e9:
-            # Ako je ovo prvi put da detektiramo gubitak, ispiši error
+            # If this is the first time we detect a loss, print error
             if not self.fail_safe_active:
-                self.get_logger().error("FAIL-SAFE: Decision node izgubljen! Zaustavljam robota.")
+                self.get_logger().error("FAIL-SAFE: Decision node lost! Stopping robot.")
                 self.fail_safe_active = True
             
             self.current_state = RobotState.STOP
         else:
-            # RECOVERY LOGIKA: Ako su poruke ponovno počele dolaziti
+            # RECOVERY LOGIC: If messages have started coming again
             if self.fail_safe_active:
-                self.get_logger().info("RECOVERY: Veza s Decision node-om ponovno uspostavljena.")
+                self.get_logger().info("RECOVERY: Connection with Decision node re-established.")
                 self.fail_safe_active = False
 
-        # Definiramo ciljne brzine za ovaj ciklus
+        # Define target speeds for this cycle
         target_lin = 0.0
         target_ang = 0.0
 
@@ -83,7 +83,7 @@ class ActuationNode(Node):
         elif self.current_state == RobotState.RIGHT:
             target_ang = -self.rot_vel_target
 
-        # RAMPING LOGIKA: Postepeno približavanje ciljnoj brzini
+        # RAMPING LOGIC: Gradually approach target speed
         self.current_linear = self.smooth_value(self.current_linear, target_lin)
         self.current_angular = self.smooth_value(self.current_angular, target_ang)
 
@@ -93,7 +93,7 @@ class ActuationNode(Node):
         self.publisher_.publish(msg)
 
     def smooth_value(self, current, target):
-        # Jednostavan linearni ramp
+        # Simple linear ramp
         diff = target - current
         if abs(diff) < self.accel_limit:
             return target

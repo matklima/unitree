@@ -17,7 +17,7 @@ class DecisionNode(Node):
         self.forced_turn_steps = 0
         self.current_action = RobotState.STOP
         self.safety_mode_active = False
-        # Dodano za praćenje promjene stanja logiranja
+        # Added for tracking logging state changes
         self.last_logged_action = None 
 
         self.declare_parameter('safe_dist', 1.2)
@@ -44,7 +44,7 @@ class DecisionNode(Node):
     def parameter_callback(self, params):
         for param in params:
             if param.name == 'safe_dist':
-                if param.value <= 0: return SetParametersResult(successful=False, reason="Udaljenost mora biti > 0")
+                if param.value <= 0: return SetParametersResult(successful=False, reason="Distance must be > 0")
                 self.safe_dist = param.value
             elif param.name == 'critical_dist':
                 self.critical_dist = param.value
@@ -55,16 +55,16 @@ class DecisionNode(Node):
             elif param.name == 'short_turn_steps':
                 self.short_turn_steps = param.value
                 
-        self.get_logger().info("Parametri uspješno ažurirani!")
+        self.get_logger().info("Parameters updated successfully!")
         return SetParametersResult(successful=True)
 
     def safety_check(self):
         elapsed = self.get_clock().now() - self.last_update_time
         if elapsed.nanoseconds > 0.5 * 1e9:
             if not self.safety_mode_active:
-                self.get_logger().error("Perception node izgubljen: Zaustavljam robota!")
+                self.get_logger().error("Perception node lost: Stopping robot!")
                 self.safety_mode_active = True
-                self.last_logged_action = RobotState.STOP # Resetiramo log da javi povratak
+                self.last_logged_action = RobotState.STOP # Reset log to report recovery
             
             state = Int32()
             state.data = RobotState.STOP
@@ -72,7 +72,7 @@ class DecisionNode(Node):
 
     def decision_callback(self, msg):
         if self.safety_mode_active:
-            self.get_logger().info("RECOVERY: Perception node ponovno aktivan.")
+            self.get_logger().info("RECOVERY: Perception node active again.")
             self.safety_mode_active = False
 
         self.last_update_time = self.get_clock().now()
@@ -83,7 +83,7 @@ class DecisionNode(Node):
         f_dist, l_dist, r_dist = distances
         state = Int32()
 
-        # LOGIKA ODLUČIVANJA
+        # DECISION LOGIC
         if self.forced_turn_steps > 0:
             self.forced_turn_steps -= 1
             state.data = self.current_action
@@ -116,22 +116,22 @@ class DecisionNode(Node):
             self.current_action = RobotState.FORWARD
             state.data = self.current_action
         
-        # LOGIRANJE PROMJENE AKCIJE
+        # LOG ACTION CHANGE
         self.log_action_change(self.current_action, f_dist, l_dist, r_dist)
         
         self.publisher_.publish(state)
 
     def log_action_change(self, action, f, l, r):
-        # Ispisuje samo ako je akcija drugačija od zadnje ispisane
+        # Prints only if action is different from last printed
         if action == self.last_logged_action:
             return
 
         if action == RobotState.FORWARD:
-            self.get_logger().info(f"Akcija: NAPRIJED | Put čist (F: {f:.2f}m)")
+            self.get_logger().info(f"Action: FORWARD | Path clear (F: {f:.2f}m)")
         elif action == RobotState.LEFT:
-            self.get_logger().info(f"Akcija: LIJEVO | Prepreka detektirana (F: {f:.2f}m, R: {r:.2f}m < L: {l:.2f}m)")
+            self.get_logger().info(f"Action: LEFT | Obstacle detected (F: {f:.2f}m, R: {r:.2f}m < L: {l:.2f}m)")
         elif action == RobotState.RIGHT:
-            self.get_logger().info(f"Akcija: DESNO | Prepreka detektirana (F: {f:.2f}m, L: {l:.2f}m < R: {r:.2f}m)")
+            self.get_logger().info(f"Action: RIGHT | Obstacle detected (F: {f:.2f}m, L: {l:.2f}m < R: {r:.2f}m)")
         
         self.last_logged_action = action
 
@@ -140,7 +140,7 @@ class DecisionNode(Node):
             parts = data.split(':')
             return [float(p) for p in parts]
         except (ValueError, IndexError):
-            self.get_logger().error("Neuspjelo parsiranje percepcije!")
+            self.get_logger().error("Failed to parse perception!")
             return None
 
 def main():
