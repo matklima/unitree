@@ -50,7 +50,7 @@ class PerceptionNode(Node):
         out.data = f"{f_dist:.2f}:{l_dist:.2f}:{r_dist:.2f}"
         self.pub.publish(out)
 
-        self.get_logger().info(
+        self.get_logger().debug(
             f"F: {f_dist:.2f} | L: {l_dist:.2f} | R: {r_dist:.2f}"
         )
 
