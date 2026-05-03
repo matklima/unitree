@@ -1,12 +1,12 @@
 diff --git a/robots/descriptions/go2_description/xacro/robot.xacro b/robots/descriptions/go2_description/xacro/robot.xacro
-index 98157cc..f9663f6 100755
+index 98157cc..568def3 100755
 --- a/robots/descriptions/go2_description/xacro/robot.xacro
 +++ b/robots/descriptions/go2_description/xacro/robot.xacro
-@@ -124,4 +124,7 @@
-     <xacro:leg name="rh" mirror="-1" mirror_dae="False"  front_hind="-1" front_hind_dae="False" />
-     <xacro:leg name="lh" mirror="1"  mirror_dae="True"   front_hind="-1" front_hind_dae="False" />
- 
-+    <!-- Overlay dodatak -->
-+    <xacro:include filename="$(find my_overlay)/xacro/overlay.xacro" />
-+
- </robot>
+@@ -7,6 +7,7 @@
+     <xacro:include filename="$(find go2_description)/xacro/const.xacro"/>
+     <xacro:include filename="$(find go2_description)/xacro/materials.xacro"/>
+     <xacro:include filename="$(find go2_description)/xacro/leg.xacro"/>
++    <xacro:include filename="$(find go2_description)/xacro/laser.xacro"/>
+     <!-- <xacro:include filename="$(find go2_description)/xacro/stairs.xacro"/> -->
+     <xacro:include filename="$(find go2_description)/xacro/gazebo.xacro"/>
+     <!-- <xacro:include filename="$(find go2_gazebo)/launch/stairs.urdf.xacro"/> -->
