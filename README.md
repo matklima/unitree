@@ -1,5 +1,4 @@
-# Unitree
-
+# Unitree GO2
 
 ## 🛠️ Installation Guide
 
