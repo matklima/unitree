@@ -32,6 +32,20 @@ git clone <git@github.com:matklima/unitree.git> klimaby
 git clone https://github.com/abizovnuralem/unitree_go2_ros2.git
 ```
 
+# Patch Setup for unitree_go2_ros2
+
+This project requires a patch to be applied to the `unitree_go2_ros2` repository before building the ROS2 workspace.
+
+## Patch Location
+The patch file is located at: ~/ros2_ws/src/klimaby/laser_unitree.patch
+The patch must be applied inside: ~/ros2_ws/src/unitree_go2_ros2
+Navigate to the target repository:
+
+```bash
+cd ~/ros2_ws/src/unitree_go2_ros2
+git apply ~/ros2_ws/src/klimaby/laser_unitree.patch
+```
+
 ### 3. Install and build
 
 ```bash
