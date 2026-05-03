@@ -21,10 +21,10 @@ class PerceptionNode(Node):
         self.buf_r = collections.deque([5.0] * 8, maxlen=8)
 
         self.SECTOR_WIDTH_DIVIDER = 12  # Dijeli 360° na sektore od 30°
-        self.RIGHT_START = 0.22
-        self.RIGHT_END = 0.32
-        self.LEFT_START = 0.7
-        self.LEFT_END = 0.8
+        self.LEFT_START = 0.22
+        self.LEFT_END = 0.32
+        self.RIGHT_START = 0.7
+        self.RIGHT_END = 0.8
 
         # Granice senzora i percentil
         self.MIN_RANGE = 0.3
@@ -39,8 +39,8 @@ class PerceptionNode(Node):
 
         # sektori
         f_raw = ranges[-width:] + ranges[:width]
-        l_raw = ranges[int(n * self.RIGHT_START): int(n * self.RIGHT_END)]
-        r_raw = ranges[int(n * self.LEFT_START): int(n * self.LEFT_END)]
+        l_raw = ranges[int(n * self.LEFT_START): int(n * self.LEFT_END)]
+        r_raw = ranges[int(n * self.RIGHT_START): int(n * self.RIGHT_END)]
 
         f_dist = self.process_sector(f_raw, self.buf_f)
         l_dist = self.process_sector(l_raw, self.buf_l)
