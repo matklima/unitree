@@ -54,23 +54,3 @@ ros2 launch go2_config gazebo.launch.py rviz:=true world:=/home/mateo/ros2_ws/in
 ```bash
 ros2 launch klimaby autonomy.launch.py
 ```
-
-### 6. Dodavanje overlay-a (opcionalno)
-
-Ako želite dodati vlastite modifikacije na robota (npr. dodatne senzore ili linkove) bez mijenjanja originalnog koda:
-
-1. Napravite overlay workspace:
-   ```bash
-   mkdir -p ~/overlay_ws/src
-   cp -r ~/ros2_ws/src/unitree-go2-ros2/robots/descriptions/go2_description ~/overlay_ws/src/
-   ```
-
-2. Modificirajte `~/overlay_ws/src/go2_description/xacro/robot.xacro` da dodate svoje elemente na kraj.
-
-3. Build-ajte overlay:
-   ```bash
-   cd ~/overlay_ws && colcon build
-   source install/setup.bash
-   ```
-
-4. Sada će launch koristiti overlay verziju s vašim dodacima.
